@@ -5,6 +5,7 @@ import datetime
 import io
 import email
 import json
+import re
 
 import tempfile
 
@@ -207,30 +208,38 @@ def extract_pdf(message: email.message.Message) -> Tuple[str, bytes]:
     filename = None
     filebytes = None
     for part in message.walk():
-        if "application/pdf;" in part["Content-Type"]:
+        plog(part.get_content_type())
+        if "application/pdf" in part.get_content_type():
             filename = part.get_filename() or "Remailable_Attachment.pdf"
             filebytes = base64.b64decode(part.get_payload())
             break
     else:
         # Let's try getting the subjectline and body and see if there's a code
         # for us to gobble up in there :)
-        code = message.get("Subject")
+        subject = message.get("Subject")
+        mail = re.compile(r"^\[(.*)\]\s*").search(subject)
+
+        user = mail.group(1) if mail else message.get("From")
+        code = re.sub(r"^\[.*\]\s*", '', subject)
+
         if code and len(code) == 8:
-            register_user(message.get("From"), code)
-            plog(f"Registered a new user {message.get('From')}.")
+            plog(user)
+            plog(code)
+            register_user(user, code)
+            plog(f"Registered a new user {user}.")
             send_email_if_enabled(
-                message.get("From"),
+                user,
                 subject="Your email address is now verified!",
                 message="Your verification succeeded, and you can now email documents to your reMarkable tablet. Try responding to this email with a PDF attachment!",
             )
             return (False, False)
         else:
             send_email_if_enabled(
-                message.get("From"),
+                user,
                 subject="A problem with your document :(",
                 message="Unfortunately, a problem occurred while processing your email. Remailable only supports PDF attachments for now. If you're still encountering issues, please get in touch with Jordan at remailable@matelsky.com or on Twitter at @j6m8.",
             )
-            plog(f"ERROR: Encountered no PDF in message from {message.get('From')}")
+            plog(f"ERROR: Encountered no PDF in message from {user}")
             return (False, False)
 
     return (filename, filebytes)
